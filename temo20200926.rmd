@@ -1,0 +1,140 @@
+---
+title: "Analysis of Climate Warming"
+author: "Ruiyi Lian"
+date: "2020/9/26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message=FALSE)
+library('dplyr')
+library('reshape2')
+library('forcats')
+library('ggplot2')
+library('stringr')
+library('data.table')
+library('lubridate')
+library('zoo')
+Sys.setenv(LANGUAGE="en")
+library(forecast)
+library(seastests)
+library('Kendall')
+setwd("D:/R_l7/data/data")
+```
+
+# Load and Clean Data  
+
+Assemble the data into a single data frame for analysis.  
+```{r}
+dt <- data.table()
+fileList <- list.files("D:/R_l7/data/data")
+for (fileName in fileList) {
+  setwd("D:/R_l7/data/data")
+  dtSingle = fread(fileName)
+  dt <- rbind(dt,dtSingle,fill=TRUE)
+}
+head(dt)
+```
+
+Transform the date-time data into posix numbers using lubridate and make substitutions for NA data.  
+
+```{r}
+dt$Year <- paste0(dt$YYYY,dt$`#YY`)
+dt$Year <- str_replace(dt$Year,"NA","")
+dt$date <- as.Date(paste0(dt$Year,"-",dt$MM,"-",dt$DD))
+# Transform the date-time data into posix numbers using lubridate
+dt$date <- as_datetime(dt$date)
+```
+
+Make a Backup file.  
+
+```{r}
+dtBackup <- dt
+```
+
+Determine month frequency.  
+
+```{r}
+dt <- dtBackup[,c("date","ATMP","WTMP")]
+dt[,":="(ATMP=as.numeric(ATMP),
+         WTMP=as.numeric(WTMP))]
+dt$ATMP[dt$ATMP==999]=NA
+dt$WTMP[dt$WTMP==999]=NA
+dt$ym <- as.yearmon(dt$date)
+dt <- na.omit(dt)
+dtMonth <- dt[,.(ATMP=mean(ATMP,na.rm = T),
+            WTMP=mean(WTMP,na.rm = T)),by=ym]
+length(unique(dtMonth$ym))
+names(dtMonth) <- c("ym","Air","Water")
+dtMonth <- na.omit(dtMonth)
+```
+
+# Visualization  
+
+Compare temperature change in air vs water.  
+
+```{r}
+dtMP <- melt(dtMonth,id.vars = "ym")
+ggplot(dtMP,aes(ym,value,color=variable))+
+  geom_line()+
+  labs(x="",y="Temperature (°F)")+
+  theme(legend.title = element_blank())
+```
+
+Seasonal of air temperature.  
+
+```{r}
+AirTemp <- ts(c(dtMonth$Air[c(1:156)],
+                rep(NA,6),
+                dtMonth$Air[c(157:247)]),
+              start = 1999,
+              frequency = 12)
+```
+
+
+```{r}
+ggseasonplot(AirTemp)
+```
+
+Seasonal of water temperature.  
+
+```{r}
+WaterTemp <- ts(c(dtMonth$Water[c(1:156)],
+                rep(NA,6),
+                dtMonth$Water[c(157:247)]),
+              start = 1999,
+              frequency = 12)
+ggseasonplot(WaterTemp)
+```
+
+
+```{r}
+WaterTemp <- ts(c(dtMonth$Water[c(1:156)],
+                rep(NA,6),
+                dtMonth$Water[c(157:247)]),
+              start = 1999,
+              frequency = 12)
+ggseasonplot(WaterTemp)
+```
+
+# test  
+
+Before use Mann-Kendall trend test we need check whether there is seasonal in data or not.  
+
+```{r}
+isSeasonal(WaterTemp, freq = 12)
+```
+
+The result indicated that there is seasonal in data.  
+So  we use Seasonal Mann-Kendall trend test to a test for monotonic trend in a time series.  
+
+```{r}
+SeasonalMannKendall(WaterTemp)
+SeasonalMannKendall(AirTemp)
+```
+
+# Conclusion  
+
+As p-value is smaller than 0.05, we reject H0 and determine that there are monotonic trend in both air and water temperature from 1999 to 2009.  
